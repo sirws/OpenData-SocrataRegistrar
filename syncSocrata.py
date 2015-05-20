@@ -1,4 +1,4 @@
-import arcpy, arcrest, json, urllib2, unicodedata
+import arcpy, arcrest, json, urllib2, unicodedata, os, cStringIO, time
 from arcrest.ags import MapService
 from datetime import datetime
 
@@ -6,18 +6,15 @@ from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
 
-import os
-import json
-import urllib, cStringIO
-
 koopBase = "http://geodata.wa.gov/koop/socrata/wa/"
 socrataURL = "http://data.wa.gov/data.json"
-username = "<Your ArcGIS Online Username"
-password = "<Your ArcGIS Online Password"
+username = "<Your ArcGIS Online Username>"
+password = "<Your ArcGIS Online Password>"
 sh = None
 agol = None
 usercontent = None
-folderId = "4eaf10c38338433cb29048e748eeb23b" #folderId to place all of the registration
+folderId = "4eaf10c38338433cb29048e748eeb23b" #folderId in username's content to place all of the item registrations
+#you can get the folderId from here: http://<your-org>.maps.arcgis.com/sharing/rest/content/users/<Username>?f=pjson&token=<your token>
 proxy_port = None
 proxy_url = None
 baseURL = None
@@ -26,10 +23,12 @@ itemsToIgnore = {}
 groupIds = "9fcc2802b3d2423795f37c384213301e" #groups to share to
 sharingEveryone = True
 sharingOrg = True
-fontsPath = r'C:\Users\scot5141\Documents\GitHub\OpenData-SocrataRegistrar\fonts' #path to your fonts for the thumbnail text
 standardTags = ["data.wa.gov"]
+
+### The following config variables are for creating thumbnails to be used for the item registrations
 thumbnailImage = r"C:\Users\scot5141\Documents\GitHub\OpenData-SocrataRegistrar\thumbnail\waopendatabridge.png" #thumbnail you are going to place text on
-tnFont = "ARIALUNI.TTF" #font to be used to render item title on thumbnail
+fontsPath = r'C:\Users\scot5141\Documents\GitHub\OpenData-SocrataRegistrar\fonts' #path to your fonts for the thumbnail text
+tnFont = "ARIALUNI.TTF" #font to be used to render item title on thumbnail - make sure font is in the %fontsPath% location.
 tnULX = 0 #bounding box upper left x coordinate to place text within on image
 tnULY = 100 #bounding box upper left y coordinate to place text within on image
 tnLLX = 200 #bounding box lower left x coordinate to place text within on image
@@ -143,9 +142,12 @@ def createThumbnail(itemText, fontSize, fontColor, textAlign, fontFace, ulx, uly
           w,h=draw.textsize(line, font=font)
           draw.text((ULX, current_h), line, font=font, fill=TEXT_COLOR)
           arcpy.AddMessage("WRITING LINE TO IMAGE: '" + line + "' at insertion x location: " + str(current_h))
-          current_h+=h+PIXELS_BETWEEN_LINES
+          current_h+=h+PIXELS_BETWEEN_LINES  
   img.save(os.path.join(outputPath, "outputimage" + ".png"))
   return os.path.join(outputPath, "outputimage" + ".png")
+  #timestr = time.strftime("%Y%m%d-%H%M%S")
+  #img.save(os.path.join(outputPath, "outputimage" + "-" + timestr + ".png"))
+  #return os.path.join(outputPath, "outputimage" + "-" + timestr + ".png")
 
 
 if __name__ == "__main__":
@@ -161,12 +163,18 @@ if __name__ == "__main__":
         agolContent = agol.content.getUserContent(username=username,folderId=folderId)
 
         itemsDictAGOL = {}
-        for userItem in agolContent['items']:          
-          itemsDictAGOL[userItem["url"].split('/')[-3]] = { "id": userItem["id"], "url": userItem["url"] }
+        for userItem in agolContent['items']:
+          if userItem["type"] == "Feature Service":
+            if koopBase in userItem["url"]:
+              itemsDictAGOL[userItem["url"].split('/')[-3]] = { "id": userItem["id"], "url": userItem["url"] }
+            else:
+              print "Item: -" + userItem["title"] + "- does not appear to be an open data registration. You may want to remove it from the folder."
+          else: 
+            print "Item: -" + userItem["title"] + "- is not a Feature Service or an open data registration. You may want to remove it from the folder."
         print str(len(itemsDictAGOL)) + " items found in ArcGIS Online"
         
-        for socrataId, AGOLItem in itemsDictAGOL.iteritems():
-          print socrataId + ": " + AGOLItem["id"]
+        #for socrataId, AGOLItem in itemsDictAGOL.iteritems():
+        #  print socrataId + ": " + AGOLItem["id"]
 
         allSocrataData = {}
         for dataset in data["dataset"]:
@@ -176,20 +184,27 @@ if __name__ == "__main__":
         diff = set(itemsDictAGOL.keys())-set(allSocrataData.keys()) #sets
         
         for n in diff:
+          content = agol.content
           usercontent = content.usercontent(username=username)
           if folderId is None or folderId == "":
-              res = agolContent.deleteItem(item_id=userItem[n])
+              res = usercontent.deleteItem(item_id=itemsDictAGOL[n]["id"])
+              print "Deleting item... " + res
           else:
-              res =  agolContent.deleteItem(item_id=userItem[n], folder=folderId)
-          print n
+              res =  usercontent.deleteItem(item_id=itemsDictAGOL[n]["id"], folder=folderId)
+              print "Deleting item... " + res
+          print itemsDictAGOL[n]
+        
+        #For testing if you would like to pause after deleting files
+        #raw_input("Press Enter to continue...")
         
         for dataset in data["dataset"]:
             usercontent = agol.content.usercontent(username)
             if isinstance(usercontent, arcrest.manageorg.administration._content.UserContent):
                 pass
+            itemParams = None
             itemParams = arcrest.manageorg.ItemParameter()
             itemParams.title = dataset["title"]
-            itemParams.description = str(unicodedata.normalize('NFKD', dataset["description"]).encode('ascii','ignore')) + '<br/><a href="' + dataset["landingPage"] + '">' + dataset["landingPage"] + '</a>' + '<br/>Created: ' + dataset["issued"] + '<br/>Modified : ' + dataset["modified"] + '<br/>Update by registerSocrata script at: ' + str(datetime.now())
+            itemParams.description = str(unicodedata.normalize('NFKD', dataset['description']).encode('ascii','ignore')) + '<br/><a href="' + dataset['landingPage'] + '">' + dataset['landingPage'] + '</a>' + '<br/>Created: ' + dataset['issued'] + '<br/>Modified : ' + dataset['modified'] + '<br/>Update by registerSocrata script at: ' + str(datetime.now())
             itemParams.snippet = dataset["title"]
             itemParams.accessInformation = "Creative Commons Attribution License"
             itemParams.type = "Feature Service"
@@ -211,9 +226,10 @@ if __name__ == "__main__":
                   itemParams.extent = str(data2["extent"]["xmin"]) + "," + str(data2["extent"]["ymin"]) + "," + str(data2["extent"]["xmax"]) + "," + str(data2["extent"]["ymax"])
               else:
                   itemParams.extent = defaultExtentForTables
-                  itemParams.title = itemParams.title + " (Non-Spatial)"
-              path = createThumbnail(dataset["title"], tnSize, tnColor, tnAlign, tnFont,tnULX,tnULY,tnLLX,tnLLY, thumbnailImage)
+                  itemParams.title += " (Non-Spatial)"
+              path = createThumbnail(dataset["title"], tnSize, tnColor, tnAlign, tnFont, tnULX, tnULY, tnLLX, tnLLY, thumbnailImage)
               itemParams.thumbnail = path
+              print path
               itemExists = False
               existId = None
               for itemId, url in itemsDictAGOL.iteritems():
@@ -222,16 +238,16 @@ if __name__ == "__main__":
                   
               if existId:
                 content = agol.content
-                adminusercontent = content.usercontent()
                 item = content.item(existId)
-                res = adminusercontent.updateItem(itemId=existId, updateItemParameters=itemParams, folderId=item.ownerFolder)
                 item.shareItem(groups=groupIds, everyone=sharingEveryone, org=sharingOrg)
-                print "UPDATING FEATURE SERVICE: " + itemParams.url
+                res = usercontent.updateItem(itemId=existId, updateItemParameters=itemParams, folderId=folderId)
+                print "UPDATING FEATURE SERVICE: " + itemParams.title + " - " + itemParams.url
+                print res
               else:
                 res = usercontent.addItem(itemParameters=itemParams, overwrite=True, folder=folderId)
                 itemToUpdate = agol.content.item(res["id"])
                 itemToUpdate.shareItem(groups=groupIds,everyone=sharingEveryone,org=sharingOrg)
-                print "ADDING FEATURE SERVICE: " + itemParams.url
+                print "ADDING FEATURE SERVICE: " + itemParams.title + " - " + itemParams.url
             except Exception as inst:
               print "SKIPPING DATASET: " + dataset['identifier'].split('/')[-1]
 
