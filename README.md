@@ -10,14 +10,21 @@ The script also syncronizes the catalogs so if items are removed from the Socrat
 
 ## Basic Usage
 
-  Create a folder in your content to store the registrations.  It is recommended to not put the registrations in an existing folder with other content in it.  You will need your folderId in the python script. You can get the folderId from here: http://<your-org>.maps.arcgis.com/sharing/rest/content/users/<Username>?f=pjson&token=<your token>
-  Create a group that you will share your items to.  Make sure it is enabled for Open Data.  You will need your group id in the python script.
+  1. Create a folder in your content to store the registrations.  It is recommended to not put the registrations in an existing folder with other content in it.  You will need your folderId in the python script. You can get the folderId from here: http://<your-org>.maps.arcgis.com/sharing/rest/content/users/<Username>?f=pjson&token=<your token>
+  2. Create a group that you will share your items to.  Make sure it is enabled for Open Data.  You will need your group id in the python script.
 
   To find your group ID, use this tool:
   https://developers.arcgis.com/javascript/jssamples/portal_getgroupamd.html
 
   You will want a stock thumbnail that you will want to use for your items.  This script will add the item title to the thumbnail.
+  
+  Here is a sample Thumbnail without the text added.  You would need to create something like this.  It should be 200x133 pixels.
+  
   ![Thumbnail](https://raw.githubusercontent.com/sirws/OpenData-SocrataRegistrar/master/thumbnail/waopendatabridge.png)
+  
+  Here is the thumbnail after the text has been added by the script:
+  
+  ![Thumbnail After]https://raw.githubusercontent.com/sirws/OpenData-SocrataRegistrar/master/thumbnail/SampleOutputThumbnail.png
   
   You will need to define a box using upper left and lower right coordinates (pixels) on the thumbnail.  This will define where to constrain the text on the image.
   You will need a font that you want to use to render the text on the image as well as the color and size.
