@@ -24,7 +24,7 @@ The script also syncronizes the catalogs so if items are removed from the Socrat
   
   Here is the thumbnail after the text has been added by the script:
   
-  ![Thumbnail After]https://raw.githubusercontent.com/sirws/OpenData-SocrataRegistrar/master/thumbnail/SampleOutputThumbnail.png
+  ![Thumbnail After](https://raw.githubusercontent.com/sirws/OpenData-SocrataRegistrar/master/thumbnail/SampleOutputThumbnail.png)
   
   You will need to define a box using upper left and lower right coordinates (pixels) on the thumbnail.  This will define where to constrain the text on the image.
   You will need a font that you want to use to render the text on the image as well as the color and size.
