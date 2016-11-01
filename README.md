@@ -10,7 +10,7 @@ The script also syncronizes the catalogs so if items are removed from the Socrat
 
 ## Basic Usage
 
-  1. Create a folder in your content to store the registrations.  It is recommended to not put the registrations in an existing folder with other content in it.  You will need your folderId in the python script. You can get the folderId from here: http://your-org.maps.arcgis.com/sharing/rest/content/users/Username?f=pjson&token=<your token>
+  1. Create a folder in your content to store the registrations.  It is recommended to not put the registrations in an existing folder with other content in it.  You will need your folderId in the python script. You can get the folderId from here: http://your-org.maps.arcgis.com/sharing/rest/content/users/Username?f=pjson&token=yourtoken
   2. Create a group that you will share your items to.  Make sure it is enabled for Open Data.  You will need your group id in the python script.
 
   To find your group ID, use this tool:
