@@ -1,4 +1,5 @@
 import arcpy, arcrest, json, urllib2, unicodedata, os, cStringIO, time
+import logging
 from arcrest.ags import MapService
 from datetime import datetime
 
@@ -6,21 +7,23 @@ from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
 
-koopBase = "http://geodata.wa.gov/koop/socrata/wa/"
+#koopBase = "http://geodata.wa.gov/koop/socrata/wa/"
+koopBase = "http://koop.dc.esri.com/socrata/wastate/"
 socrataURL = "http://data.wa.gov/data.json"
 username = "<Your ArcGIS Online Username>"
 password = "<Your ArcGIS Online Password>"
 sh = None
 agol = None
 usercontent = None
-folderId = "4eaf10c38338433cb29048e748eeb23b" #folderId in username's content to place all of the item registrations
+folderId = "9b6d06bc333e479783b712fb08893eab" #folderId in username's content to place all of the item registrations
+folderName = "data.wa.gov"
 #you can get the folderId from here: http://<your-org>.maps.arcgis.com/sharing/rest/content/users/<Username>?f=pjson&token=<your token>
 proxy_port = None
 proxy_url = None
 baseURL = None
 defaultExtentForTables = "-124.775,45.413,-116.952,49.051" #default extent for non-spatial items
 itemsToIgnore = {}
-groupIds = "9fcc2802b3d2423795f37c384213301e" #groups to share to
+groupIds = "cdd16d5a3ba54b8193834aea8634053e" #groups to share to
 sharingEveryone = True
 sharingOrg = True
 standardTags = ["data.wa.gov"]
@@ -152,26 +155,35 @@ def createThumbnail(itemText, fontSize, fontColor, textAlign, fontFace, ulx, uly
 
 if __name__ == "__main__":
     try:
+        logger = logging.getLogger('syncSocrata')
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        hdlr = logging.FileHandler('syncSocrata-' + timestr + '.log')
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+        hdlr.setFormatter(formatter)
+        logger.addHandler(hdlr) 
+        logger.setLevel(logging.DEBUG)
+        logger.info("STARTING PROCESS")
         data = json.load(urllib2.urlopen(socrataURL))
-        print data["dataset"][0]["identifier"]
 
         if baseURL is None or baseURL == "":
           baseURL = "https://www.arcgis.com/sharing/rest"
           
         sh = arcrest.AGOLTokenSecurityHandler(username=username, password=password)
-        agol = arcrest.manageorg.Administration(url=baseURL, securityHandler=sh)
-        agolContent = agol.content.getUserContent(username=username,folderId=folderId)
-
+        admin = arcrest.manageorg.Administration(url=baseURL, securityHandler=sh)
+        content = admin.content
+        user = content.users.user()
+        user.currentFolder = folderName #title
+        agolContent = user.items
         itemsDictAGOL = {}
-        for userItem in agolContent['items']:
-          if userItem["type"] == "Feature Service":
-            if koopBase in userItem["url"]:
-              itemsDictAGOL[userItem["url"].split('/')[-3]] = { "id": userItem["id"], "url": userItem["url"] }
+        for userItem in agolContent:
+          if userItem.type == "Feature Service":
+            if koopBase in userItem.url:
+              itemsDictAGOL[userItem.url.split('/')[-3]] = { "id": userItem.id, "url": userItem.url }
             else:
-              print "Item: -" + userItem["title"] + "- does not appear to be an open data registration. You may want to remove it from the folder."
+              logger.info("Item: -" + userItem.title + "- does not appear to be an open data registration. You may want to remove it from the folder.")
           else: 
-            print "Item: -" + userItem["title"] + "- is not a Feature Service or an open data registration. You may want to remove it from the folder."
-        print str(len(itemsDictAGOL)) + " items found in ArcGIS Online"
+            logger.info("Item: -" + userItem.title + "- is not a Feature Service or an open data registration. You may want to remove it from the folder.")
+        logger.info(str(len(itemsDictAGOL)) + " items found in ArcGIS Online")
         
         #for socrataId, AGOLItem in itemsDictAGOL.iteritems():
         #  print socrataId + ": " + AGOLItem["id"]
@@ -180,31 +192,25 @@ if __name__ == "__main__":
         for dataset in data["dataset"]:
           allSocrataData[dataset['identifier'].split('/')[-1]] = koopBase + dataset['identifier'].split('/')[-1] + "/FeatureServer/0"
 
-        print str(len(allSocrataData)) + " items found in data.wa.gov"
+        logger.info(str(len(allSocrataData)) + " items found in data.wa.gov")
         diff = set(itemsDictAGOL.keys())-set(allSocrataData.keys()) #sets
-        
+
+        theIDs = []
         for n in diff:
-          content = agol.content
-          usercontent = content.usercontent(username=username)
-          if folderId is None or folderId == "":
-              res = usercontent.deleteItem(item_id=itemsDictAGOL[n]["id"])
-              print "Deleting item... " + res
-          else:
-              res =  usercontent.deleteItem(item_id=itemsDictAGOL[n]["id"], folder=folderId)
-              print "Deleting item... " + res
-          print itemsDictAGOL[n]
+          theIDs.append(itemsDictAGOL[n]["id"])
+        if len(theIDs) > 0:
+          logger.info("Deleting: " + ",".join(theIDs))
+          user.deleteItems(",".join(theIDs))
         
         #For testing if you would like to pause after deleting files
         #raw_input("Press Enter to continue...")
         
         for dataset in data["dataset"]:
-            usercontent = agol.content.usercontent(username)
-            if isinstance(usercontent, arcrest.manageorg.administration._content.UserContent):
-                pass
+            usercontent = agolContent
             itemParams = None
             itemParams = arcrest.manageorg.ItemParameter()
             itemParams.title = dataset["title"]
-            itemParams.description = str(unicodedata.normalize('NFKD', dataset['description']).encode('ascii','ignore')) + '<br/><a href="' + dataset['landingPage'] + '">' + dataset['landingPage'] + '</a>' + '<br/>Created: ' + dataset['issued'] + '<br/>Modified : ' + dataset['modified'] + '<br/>Update by registerSocrata script at: ' + str(datetime.now())
+            itemParams.description = str(unicodedata.normalize('NFKD', dataset['description']).encode('ascii','ignore')) + '<br/><a href="' + dataset['landingPage'] + '">' + dataset['landingPage'] + '</a>' + '<br/>Created: ' + dataset['issued'] + '<br/>Modified : ' + dataset['modified'] + '<br/>Update by syncSocrata script at: ' + str(datetime.now())
             itemParams.snippet = dataset["title"]
             itemParams.accessInformation = "Creative Commons Attribution License"
             itemParams.type = "Feature Service"
@@ -219,38 +225,59 @@ if __name__ == "__main__":
             itemParams.tags = ",".join(allTags)
 
             itemParams.url = koopBase + dataset['identifier'].split('/')[-1] + "/FeatureServer/0"
+            
             try:
+              logger.info(itemParams.url)
               data2 = json.load(urllib2.urlopen(itemParams.url))
-              itemParams.typeKeywords = ["Data", "Service", "Feature Service", "ArcGIS Server", "Feature Access"]
-              if data2["type"] == "Feature Layer":
-                  itemParams.extent = str(data2["extent"]["xmin"]) + "," + str(data2["extent"]["ymin"]) + "," + str(data2["extent"]["xmax"]) + "," + str(data2["extent"]["ymax"])
-              else:
-                  itemParams.extent = defaultExtentForTables
-                  itemParams.title += " (Non-Spatial)"
-              path = createThumbnail(dataset["title"], tnSize, tnColor, tnAlign, tnFont, tnULX, tnULY, tnLLX, tnLLY, thumbnailImage)
-              itemParams.thumbnail = path
-              print path
-              itemExists = False
-              existId = None
-              for itemId, url in itemsDictAGOL.iteritems():
-                if url["url"] == itemParams.url:
-                  existId = url["id"]
-                  
-              if existId:
-                content = agol.content
-                item = content.item(existId)
-                item.shareItem(groups=groupIds, everyone=sharingEveryone, org=sharingOrg)
-                res = usercontent.updateItem(itemId=existId, updateItemParameters=itemParams, folderId=folderId)
-                print "UPDATING FEATURE SERVICE: " + itemParams.title + " - " + itemParams.url
-                print res
-              else:
-                res = usercontent.addItem(itemParameters=itemParams, overwrite=True, folder=folderId)
-                itemToUpdate = agol.content.item(res["id"])
-                itemToUpdate.shareItem(groups=groupIds,everyone=sharingEveryone,org=sharingOrg)
-                print "ADDING FEATURE SERVICE: " + itemParams.title + " - " + itemParams.url
-            except Exception as inst:
-              print "SKIPPING DATASET: " + dataset['identifier'].split('/')[-1]
 
+              if not "type" in data2:
+                retryAttempts = 0
+                # drop the index and retry
+                idxdropresponse = urllib2.urlopen(koopBase + dataset['identifier'].split('/')[-1] + "/drop")
+                htmlresponse = idxdropresponse.read()
+                logger.info("Index Drop Response: " + htmlresponse)
+                while retryAttempts < 10:
+                  data2 = json.load(urllib2.urlopen(itemParams.url))
+                  if not "type" in data2:
+                    logger.debug("trying again (" + str(retryAttempts) + ")")
+                    #data2 = json.load(urllib2.urlopen(itemParams.url))
+                  else:
+                    logger.debug("retry successful")
+                    retryAttempts = 10
+                  retryAttempts += 1
+                
+              if "type" in data2:
+                logger.info("Service appears to be valid...")
+                itemParams.typeKeywords = ["Data", "Service", "Feature Service", "ArcGIS Server", "Feature Access"]
+                if data2["type"] == "Feature Layer":
+                    itemParams.extent = str(data2["extent"]["xmin"]) + "," + str(data2["extent"]["ymin"]) + "," + str(data2["extent"]["xmax"]) + "," + str(data2["extent"]["ymax"])
+                else:
+                    itemParams.extent = defaultExtentForTables
+                    itemParams.title += " (Non-Spatial)"
+                path = createThumbnail(dataset["title"], tnSize, tnColor, tnAlign, tnFont, tnULX, tnULY, tnLLX, tnLLY, thumbnailImage)
+                itemParams.thumbnail = path
+                itemExists = False
+                existId = None
+                for itemId, url in itemsDictAGOL.iteritems():
+                  if url["url"] == itemParams.url:
+                    existId = url["id"]
+                    
+                if existId:
+                  item = content.getItem(existId)
+                  item.shareItem(groups=groupIds, everyone=sharingEveryone, org=sharingOrg)
+                  res = item.userItem.updateItem(itemParameters=itemParams)
+                  logger.info("UPDATING FEATURE SERVICE: " + itemParams.title + " - " + itemParams.url)
+                else:
+                  res = user.addItem(itemParameters=itemParams, overwrite=True, folder=folderId)
+                  user.shareItems(items=res.id,groups=groupIds,everyone=sharingEveryone,org=sharingOrg)
+                  logger.info("ADDING FEATURE SERVICE: " + itemParams.title + " - " + itemParams.url)
+              elif "errors" in data2[0]:
+                logger.error("Error in registering item with Koop")
+              else:
+                logger.error("Error in registering item with Koop - logging")
+            except Exception as inst:
+              logger.error("SKIPPING DATASET: " + dataset['identifier'].split('/')[-1])
+        logger.info("PROCESS COMPLETE")    
     except ValueError, e:
         print str(e)
 
